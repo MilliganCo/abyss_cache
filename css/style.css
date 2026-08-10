@@ -1,0 +1,35 @@
+html,body{margin:0;height:100%;background:#05070a;overflow:hidden;cursor:none;
+  font:13px/1.5 "Consolas","DejaVu Sans Mono",monospace;color:#8fb89b}
+canvas{display:block}
+
+#ui{position:fixed;inset:0;pointer-events:none;white-space:pre;text-shadow:0 0 6px #1d3a28}
+#hud{position:absolute;top:10px;left:12px;opacity:.85}
+#log{position:absolute;top:10px;right:12px;text-align:right;opacity:.7;max-width:48ch;white-space:pre-wrap}
+#hint{position:absolute;bottom:34px;left:12px;opacity:.45}
+#term{position:absolute;bottom:10px;left:12px;color:#cfe8d6;white-space:pre}
+
+/* панель события: мир замирает, пока читаешь */
+#event{position:fixed;inset:0;display:none;align-items:center;justify-content:center;
+  background:rgba(4,8,6,.72);cursor:default;animation:in .25s ease-out}
+#event.on{display:flex}
+#eventbox{border:1px solid #6fd6a4;padding:26px 34px;max-width:64ch;white-space:pre-wrap;
+  background:#060b09;color:#cfe8d6;box-shadow:0 0 60px rgba(110,220,170,.18);
+  animation:jitter .18s steps(2) 3}
+#eventbox h1{font:inherit;color:#ffd27f;margin:0 0 12px;letter-spacing:.22em}
+#eventbox.red{border-color:#b32727;color:#ffbdbd;box-shadow:0 0 60px rgba(180,30,30,.3);
+  animation:jitter .1s steps(2) infinite}
+#eventbox.red h1{color:#ff6b6b}
+#eventbox b{color:#ffd27f;font-weight:normal}
+#eventbox.photo{animation:none;border-width:2px}
+#eventbox.photo h1{color:inherit}
+#eventbox .dim{opacity:.5;display:block;margin-top:16px}
+@keyframes in{from{opacity:0}to{opacity:1}}
+@keyframes jitter{50%{transform:translate(2px,-1px)}}
+
+#boot{position:fixed;inset:0;background:#05070a;padding:8vh 9vw;white-space:pre-wrap;cursor:default;
+  overflow:hidden}
+#boot b{color:#cfe8d6;font-weight:normal}
+#boot .dim{opacity:.4}
+#boot .caret{animation:blink 1s steps(2) infinite}
+#boot[data-err="1"] b{color:#ff8f8f}
+@keyframes blink{50%{opacity:0}}
