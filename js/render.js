@@ -78,6 +78,7 @@ function draw(){
   drawHavens();
   drawGate();
   drawProps(lightAng, mounted);
+  drawWrecks();
   drawRecords();
   drawCreatures();
   drawWhales();
@@ -139,58 +140,61 @@ function draw(){
   hud();
 }
 
-// ---- карта памяти: не география, а связи между обнаруженным ----
-function known(id){
-  if(ZONES.some(z => z[2] === id))       return save.zones.includes(id);
-  if(FRAGS.some(f => f.id === id))       return save.frags.includes(id) || carry.includes(id);
-  if(id === 'ЦВЕТ')                      return save.photos.length > 0;
-  if(id === 'ЗВЕЗДА')                    return save.zones.includes(zoneAt(STAR.y));
-  if(id === 'FINAL_0001')                return save.frags.length > 0 || carry.length > 0;
-  if(id === 'ПЕРЕЗАГРУЗКА')              return save.cycles > 1;
-  if(id === 'ПОВТОРНЫЙ СИГНАЛ')          return save.cmds.includes('LISTEN PORT_23');
-  return false;
+// ---- журнал: не карта и не квестлог. слева — что понято, справа — что нет ----
+// Открытые вопросы и есть вся навигация игры: непонятое указывает, куда плыть.
+function openQuestions(){
+  return QUESTIONS.filter(q => !knows(q.id) && q.need.every(knows));
 }
 
 function drawMap(){
-  g.globalAlpha = .93; g.fillStyle = '#04070a'; g.fillRect(0, 0, VW, VH);
+  g.globalAlpha = .95; g.fillStyle = '#04070a'; g.fillRect(0, 0, VW, VH);
   g.font = '12px Consolas, monospace';
+  const L = 46, R = VW/2 + 20, wrapAt = Math.max(30, Math.floor((VW/2 - 90)/7));
 
-  const ids = [...new Set(MAP_LINKS.flat())];
-  const cx = VW/2, cy = VH/2 + 10, R = Math.min(VW, VH)*.34;
-  const pos = {};
-  ids.forEach((id, i) => {
-    const an = i/ids.length*6.2832 - 1.5708;
-    pos[id] = id === 'FINAL_0001' ? [cx, cy] : [cx + Math.cos(an)*R, cy + Math.sin(an)*R*.85];
-  });
+  // перенос по словам: длинные строки улик иначе уезжают за середину экрана
+  const lines = s => {
+    const out = []; let cur = '';
+    for(const w of s.split(' ')){
+      if((cur + ' ' + w).trim().length > wrapAt){ out.push(cur); cur = w; }
+      else cur = (cur ? cur + ' ' : '') + w;
+    }
+    if(cur) out.push(cur);
+    return out;
+  };
 
-  for(const [a, b] of MAP_LINKS){                     // связь видна, если оба конца обнаружены
-    const both = known(a) && known(b);
-    g.globalAlpha = both ? .6 : .12;
-    g.strokeStyle = both ? '#6fd6a4' : '#2c4a3c';
-    g.lineWidth = 1;
-    g.setLineDash(both ? [] : [2, 8]);
-    g.beginPath(); g.moveTo(...pos[a]); g.lineTo(...pos[b]); g.stroke();
-  }
-  g.setLineDash([]);
-
-  for(const id of ids){
-    const [x, y] = pos[id], k = known(id);
-    g.globalAlpha = k ? 1 : .3;
-    g.strokeStyle = k ? '#bff4d8' : '#2c4a3c';
-    g.fillStyle   = k ? '#cfe8d6' : '#263f34';
-    g.beginPath(); g.arc(x, y, k ? 6 : 3, 0, 6.29); g.stroke();
-    const label = k ? id : '?'.repeat(Math.min(id.length, 8));
-    g.fillText(label, x - label.length*3.2, y - 12);
-  }
-
-  g.globalAlpha = .8; g.fillStyle = '#8fb89b';
-  g.fillText('КАРТА ПАМЯТИ — схема составлена дроном, не системой.', 24, 30);
-  g.fillText('связь появляется, когда обнаружены оба конца.', 24, 66);
-  g.fillText('ОБЛАСТИ ' + save.zones.length + '/' + ZONES.length +
+  g.globalAlpha = .85; g.fillStyle = '#8fb89b';
+  g.fillText('ЖУРНАЛ PING-7 — то, до чего дошёл я, а не то, что мне выдали.', L, 34);
+  g.fillText('ЦИКЛ #' + save.cycles + '   ОБЛАСТИ ' + save.zones.length + '/' + ZONES.length +
+             '   ОБЛОМКИ ' + save.wrecks.length + '/' + WRECKS.length +
              '   КАДРЫ ' + save.photos.length + '/' + PHOTOS.length +
-             '   ФРАГМЕНТЫ ' + delivered() + '/' + FRAGS.length +
-             '   ОБРЫВКИ ' + save.seen.length + '/' + TEXTS.length, 24, 48);
-  g.fillText('M — закрыть', 24, VH - 24);
+             '   ФРАГМЕНТЫ ' + delivered() + '/' + FRAGS.length, L, 54);
+
+  g.globalAlpha = .55; g.fillStyle = '#6fd6a4'; g.fillText('ИЗВЕСТНО', L, 92);
+  let y = 116;
+  for(const c of CLUES){
+    if(!knows(c.id)) continue;
+    g.globalAlpha = c.core ? 1 : .68; g.fillStyle = c.core ? '#dffbec' : '#9fc9ae';
+    for(const ln of lines((c.core ? '▸ ' : '· ') + c.t)){ g.fillText(ln, L, y); y += 17; }
+    y += 5;
+  }
+  if(y === 116){ g.globalAlpha = .35; g.fillStyle = '#6fd6a4';
+                 g.fillText('· пока ничего. я только что открыл глаза.', L, y); }
+
+  g.globalAlpha = .55; g.fillStyle = '#ffd27f'; g.fillText('НЕ ЗНАЮ', R, 92);
+  y = 116;
+  for(const q of openQuestions()){
+    g.globalAlpha = .9; g.fillStyle = '#ffd27f';
+    for(const ln of lines('? ' + q.q)){ g.fillText(ln, R, y); y += 17; }
+    y += 5;
+  }
+  if(!openQuestions().length){
+    g.globalAlpha = .9; g.fillStyle = '#ffe9b0';
+    for(const ln of lines('вопросов не осталось. в ядре, при перегреве, ' +
+                          'процесс можно снять.')){ g.fillText(ln, R, y); y += 17; }
+  }
+
+  g.globalAlpha = .4; g.fillStyle = '#8fb89b';
+  g.fillText('M — закрыть', L, VH - 26);
   g.globalAlpha = 1;
 }
 
@@ -199,7 +203,8 @@ function drawStar(){
   const a = fog(STAR.z), [x, y, k] = scr(STAR.x, STAR.y, STAR.z);
   const d = dist(drone.x, drone.y, STAR.x, STAR.y);
   if(d > STAR.R*2.2) return;
-  const R = (420 + Math.sin(now*.7)*20 + starPulse*260) * k * (.6 + delivered()*.14);
+  // корона садится с каждым сданным фрагментом: «рост мира» она платит собой
+  const R = (420 + Math.sin(now*.7)*20 + starPulse*260) * k * (1 - delivered()*STAR_DIM);
   const grd = g.createRadialGradient(x, y, 0, x, y, R*3.2);
   const core = coreOpen ? '255,240,200' : '255,225,160';
   grd.addColorStop(0,   `rgba(${core},${.55*(a*.5+.5)})`);
@@ -219,15 +224,77 @@ function drawStar(){
     }
     g.closePath(); g.stroke();
   }
+  // вблизи внутри короны проступает то, чем звезда была: раскрытый корпус дрона
+  // размером с гору. видно только если подойти — издалека это просто свет.
+  if(d < 2600){
+    const v = (1 - d/2600) * (save.records.includes(STAR_LOG.id) ? 1 : .55);
+    const S = R*.62;
+    g.globalAlpha = v*.5; g.strokeStyle = '#8a6a3a'; g.lineWidth = 2.4;
+    g.beginPath();                                       // корпус: тот же силуэт, что у дрона
+    g.arc(x, y, S*.34, 0, 6.29);
+    g.moveTo(x - S*.9, y); g.lineTo(x + S*.9, y);
+    g.stroke();
+    g.globalAlpha = v*.35; g.lineWidth = 1.6;
+    g.beginPath();                                       // створки раскрытого ядра
+    for(const s of [-1, 1]){
+      g.moveTo(x + s*S*.34, y - S*.1);
+      g.lineTo(x + s*S*.78, y - S*.46);
+      g.lineTo(x + s*S*.78, y + S*.46);
+      g.lineTo(x + s*S*.34, y + S*.1);
+    }
+    g.stroke();
+    if(!save.records.includes(STAR_LOG.id) && d < 700){   // подойти вплотную и посветить
+      g.globalAlpha = .35 + Math.sin(now*3)*.15; g.fillStyle = '#ffe9b0';
+      g.fillText('ЯДРО', x - 15, y - S*.6);
+    }
+  }
   if(carry.length){                                      // куда нести
     g.globalAlpha = .7; g.fillStyle = '#ffe9b0';
     g.fillText('СДАТЬ ФРАГМЕНТ: ' + carry.join(' '), x - 90, y - R*.75);
   }
-  if(coreOpen) for(const n of nodes){
+  if(coreOpen) for(const n of nodes()){
+    const free = n.id.endsWith('PROCESS 1');
     const nx = x + n.dx*k;
-    g.globalAlpha = 1; g.strokeStyle = '#ffe9b0'; g.lineWidth = 1.8;
+    g.globalAlpha = 1; g.strokeStyle = free ? '#bff4d8' : '#ffe9b0'; g.lineWidth = 1.8;
     g.strokeRect(nx - 84*k, y - 24*k, 168*k, 48*k);
-    g.fillStyle = '#ffe9b0'; g.fillText(n.id, nx - 74*k, y + 4*k);
+    g.fillStyle = free ? '#bff4d8' : '#ffe9b0'; g.fillText(n.id, nx - 74*k, y + 4*k);
+  }
+}
+
+// ---- обломки предшественников: ориентиры, видные раньше, чем читаются ----
+function drawWrecks(){
+  for(const w of WRECKS){
+    const got = save.wrecks.includes(w.id), a = fog(w.z);
+    const d = dist(w.x, w.y, drone.x, drone.y);
+    if(d > 6000) continue;
+    const [x, y, k] = scr(w.x, w.y, w.z), s = 150*k;
+    if(!vis(x, y, s + 200)) continue;
+    // силуэт читается и сквозь туман слоёв: это ориентир, а не мелочь
+    g.globalAlpha = Math.max(a, .18)*(got ? .35 : .9);
+    g.strokeStyle = got ? '#3a5c48' : '#9fb8c9'; g.lineWidth = 2;
+    g.beginPath();
+    g.arc(x, y, s*.30, 0, 6.29);                        // тот же силуэт, что у тебя
+    g.moveTo(x - s*.8, y); g.lineTo(x + s*.8, y);
+    g.stroke();
+    g.beginPath(); g.lineWidth = 1.4;                   // вскрытые створки корпуса
+    for(const sg of [-1, 1]){
+      g.moveTo(x + sg*s*.30, y - s*.08);
+      g.lineTo(x + sg*s*.72, y - s*.42);
+      g.lineTo(x + sg*s*.72, y + s*.42);
+      g.lineTo(x + sg*s*.30, y + s*.08);
+    }
+    g.stroke();
+    g.globalAlpha = Math.max(a, .12)*(got ? .2 : .5);   // обломки вокруг, осевшие на дно
+    for(let i = 0; i < 9; i++){
+      const an = w.z*40 + i*.7, r = s*(1.1 + (i%3)*.35);
+      g.strokeRect(x + Math.cos(an)*r, y + Math.sin(an)*r*.5, 8*k, 6*k);
+    }
+    if(!got){
+      g.globalAlpha = Math.max(a, .3)*.8; g.fillStyle = '#9fb8c9';
+      g.fillText('СЛОЙ ' + String(Math.round(w.z*ZLAYERS)).padStart(2,'0'), x - 24, y - s*.6);
+      g.globalAlpha = Math.max(a, .2)*.3;               // слабый пульс: тут ещё есть питание
+      g.beginPath(); g.arc(x, y, s*(1 + Math.sin(now*1.2)*.06), 0, 6.29); g.stroke();
+    }
   }
 }
 
@@ -291,7 +358,7 @@ function drawProps(lightAng, mounted){
         }
         break;
       case 'psu': {                                      // энергоузел: дышит, зовёт импульсом
-        const spent = now - (p.tapped || -99) < 25;      // недавно вскрыт — пустой и тусклый
+        const spent = p.spent;                           // вскрыт светом — пуст до конца цикла
         const r = s*.3*(1 + Math.sin(now*3 + p.bob)*(spent ? .04 : .18));
         g.arc(x, y, r, 0, 6.29);
         g.moveTo(x - r*1.6, y); g.lineTo(x + r*1.6, y);
@@ -627,21 +694,33 @@ function drawHunters(){
   }
 }
 
+// Кадр говорит о себе тремя состояниями, без единой строки текста:
+// камень (не его час) → жёлтый пульс (час настал) → белое кольцо (условие выполнено, бери).
 function drawFrags(){
   for(const f of FRAGS){
     const done = save.frags.includes(f.id), held = carry.includes(f.id);
     if(held) continue;
     const a = fog(f.z); if(a <= .02) continue;
-    const [x, y, k] = scr(f.x, f.y, f.z), live = phase === f.phase;
+    const [x, y, k] = scr(f.x, f.y, f.z);
     if(!vis(x, y, 140)) continue;
-    g.globalAlpha = a*(done ? .25 : live ? 1 : .3);
-    g.strokeStyle = done ? '#3a5c48' : live ? '#ffd27f' : '#4e8f6a'; g.lineWidth = 1.7;
-    const s = 32*k*(live && !done ? 1 + Math.sin(now*4)*.14 : 1);
+    const armed = !done && fragArmed(f), open = armed && fragOpen(f);
+    g.globalAlpha = a*(done ? .25 : armed ? 1 : .3);
+    g.strokeStyle = done ? '#3a5c48' : open ? '#fff6da' : armed ? '#ffd27f' : '#4e8f6a';
+    g.lineWidth = open ? 2.4 : 1.7;
+    const s = 32*k*(armed ? 1 + Math.sin(now*4)*.14 : 1);
     g.beginPath(); g.rect(x-s, y-s, s*2, s*2); g.moveTo(x-s, y+s); g.lineTo(x+s, y-s); g.stroke();
-    if(live && !done){
-      g.globalAlpha = a*.8; g.fillStyle = '#ffd27f'; g.fillText(f.id, x - s, y - s - 8);
+    if(armed){
+      g.globalAlpha = a*.8; g.fillStyle = open ? '#fff6da' : '#ffd27f';
+      g.fillText(f.id, x - s, y - s - 8);
       g.globalAlpha = a*.3;
       g.beginPath(); g.arc(x, y, s*(2 + Math.sin(now*3)*.3), 0, 6.29); g.stroke();
+    }
+    if(open){                                     // окно открыто: сходящееся кольцо, видно издалека
+      g.globalAlpha = a*.55; g.lineWidth = 1.4; g.strokeStyle = '#fff6da';
+      for(let i = 0; i < 3; i++){
+        const rr = s*4 - ((now*180 + i*s*1.3) % (s*3));
+        g.beginPath(); g.arc(x, y, Math.max(s*1.1, rr), 0, 6.29); g.stroke();
+      }
     }
   }
 }
@@ -745,6 +824,7 @@ function drawDrone(lightAng){
     else {
       if(!echo.rang){ echo.rang = true; echoPing(echo.kind); }
       const col = echo.kind === 'star' ? '255,233,176' : echo.kind === 'haven' ? '159,232,196'
+                : echo.kind === 'wreck' ? '159,184,201'
                 : echo.kind === 'node' || echo.kind === 'frag' ? '255,210,127' : '143,184,155';
       const a2 = (1 - age)*(echo.kind === 'far' ? .55 : 1);
       const near = Math.max(.3, 1 - echo.d/6000);          // ближе цель — шире засветка
@@ -856,10 +936,11 @@ function hud(){
     `СДАНО ${delivered()}/${FRAGS.length}   НЕСЁШЬ ${carry.length}   КАДРЫ ${save.photos.length}/${PHOTOS.length}   ЦИКЛ #${save.cycles}` +
     (mounted() ? `\nMOUNT A: ${Math.ceil(mountUntil-now)}s` : '');
   document.getElementById('log').textContent = save.log.join('\n');
-  document.getElementById('hint').textContent =
-    'ЛКМ — фонарь: держать на объекте, пока не вскроется\n' +
-    'ПРОБЕЛ — коротко: импульс сонара · держать: стабилизация и зарядка\n' +
-    'колесо — глубина   ·   T — терминал   ·   M — карта памяти';
+  // Единственный канал подсказки — мысль самого дрона. Никаких целей и стрелок:
+  // управление живёт на загрузочном экране, маршрут — в открытых вопросах журнала.
+  const $h = document.getElementById('hint');
+  $h.textContent = thought ? thought.t : '';
+  $h.style.opacity = thought ? Math.max(0, Math.min(1, (13 - (now - thought.at))/2.5)) : 0;
   document.getElementById('term').textContent =
     termOpen ? '> ' + termText + '_\n' + termList()
     : (now - termEchoT < 6 ? termEcho : '');

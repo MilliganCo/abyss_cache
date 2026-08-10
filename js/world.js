@@ -64,7 +64,12 @@ function grow(){                                      // мир прираста
 
 grow();                                               // плотность мира — сразу по сохранённому прогрессу
 
-const nodes = [{id:'COMPLETE RESTORE', dx:-260}, {id:'PROTECT CACHE', dx:260}];
+// Узлы ядра. Первые два — что делать с изображением: петля продолжается в обоих.
+// Вторые два появляются только от знания: понял, что такое звезда — можешь снять процесс.
+const NODES_LOOP = [{id:'COMPLETE RESTORE', dx:-260}, {id:'PROTECT CACHE', dx:260}];
+const NODES_FREE = [{id:'COMPLETE RESTORE', dx:-560}, {id:'PROTECT CACHE', dx:-190},
+                    {id:'PURGE PROCESS 1',  dx: 190}, {id:'HALT PROCESS 1', dx:560}];
+const nodes = () => knowsAll() ? NODES_FREE : NODES_LOOP;
 
 function reboot(){
   t0 = performance.now()/1000; save.cycles++; persist();
@@ -73,7 +78,9 @@ function reboot(){
   carry = []; hunters.length = 0; nulls.length = 0; indexer = null;
   drone.vx = drone.vy = 0; drone.pwr = PWR_MAX;
   noise = 0; labels = []; pingArrow = null; mountUntil = 0; coreOpen = false;
-  for(let i = 0; i < props.length; i++){ props[i].dead = false; props[i].wake = 0; props[i].hunt = false; }
+  for(let i = 0; i < props.length; i++){
+    props[i].dead = false; props[i].wake = 0; props[i].hunt = false; props[i].spent = false;
+  }
   grow();
 }
 
@@ -92,16 +99,18 @@ function currentGoal(){
     let best = null, bd = 4000;
     for(let i = 0; i < nProps; i++){
       const p = props[i];
-      if(p.dead || !(p.pow || p.glow) || now - (p.tapped || -99) < 25) continue;
+      if(p.dead || !(p.pow || p.glow) || p.spent) continue;
       const d = dist(p.x, p.y, drone.x, drone.y);
       if(d < bd){ bd = d; best = p; }
     }
     if(best) return {x:best.x, y:best.y, z:best.z, kind:'node'};
   }
   if(carry.length) return {x:STAR.x, y:STAR.y, z:STAR.z, kind:'star'};
-  const f = FRAGS.find(f => f.phase === phase && !save.frags.includes(f.id));
+  const f = FRAGS.find(f => fragArmed(f) && !fragTaken(f));   // у кого сейчас его час
   if(f) return {x:f.x, y:f.y, z:f.z, kind:'frag'};
-  const nf = FRAGS.find(f => !save.frags.includes(f.id));  // иначе — где искать следующий кадр
+  const w = WRECKS.find(w => !save.wrecks.includes(w.id));    // некуда спешить — иди читать
+  if(w) return {x:w.x, y:w.y, z:w.z, kind:'wreck'};
+  const nf = FRAGS.find(f => !fragTaken(f));                  // иначе — где искать следующий кадр
   return nf ? {x:nf.x, y:nf.y, z:nf.z, kind:'far'} : {x:STAR.x, y:STAR.y, z:STAR.z, kind:'star'};
 }
 
@@ -122,7 +131,7 @@ function havenAt(x, y){
 // ---- освещение: звезда + собственный фонарь + светящиеся узлы ----
 function starLight(x, y){
   const d = dist(x, y, STAR.x, STAR.y);
-  return Math.max(0, 1 - d / STAR.R) * (1 + starPulse);
+  return Math.max(0, 1 - d / starR()) * (1 + starPulse);
 }
 
 function step(dt){
@@ -164,7 +173,7 @@ function step(dt){
   let atNode = false;
   drone.pwr -= (PWR_IDLE + speed*PWR_MOVE*.1 + carry.length*CARRY_PWR) * dt;
   if(mouse.down && drone.pwr > 0) drone.pwr -= PWR_LIGHT*dt;
-  const nearStar = dist(drone.x, drone.y, STAR.x, STAR.y) < STAR.R*.35;
+  const nearStar = dist(drone.x, drone.y, STAR.x, STAR.y) < starR()*.35;
   if(nearStar){ drone.pwr += PWR_NODE*dt*.8; atNode = true; }
   if(stabilize && !mouse.down) drone.pwr += PWR_REST*dt;
   haven = havenAt(drone.x, drone.y);
@@ -207,18 +216,10 @@ function step(dt){
       if(d < 900) hits.push([d, p]);
     }
     hits.sort((a,b) => a[0]-b[0]);
-    let tapped = false;                             // заряд снимается только с ближайшего узла
+    // Сонар — только зрение. Энергию из узла достаёт исключительно фонарь:
+    // иначе импульс окупает сам себя и свет становится не нужен.
     for(const [, p] of hits.slice(0, SCAN_MAX)){
       p.wake = 1;
-      if((p.pow || p.glow) && !tapped && now - (p.tapped || -99) > 25){
-        tapped = true;
-        drone.pwr = Math.min(PWR_MAX, drone.pwr + (p.pow ? PWR_TAP : PWR_TAP_B));
-        p.tapped = now;
-        for(let j = 0; j < 22; j++)
-          spawn(p.x, p.y, p.z, wrapD(drone.x-p.x,W)*.006 + (Math.random()-.5),
-                wrapD(drone.y-p.y,H)*.006 + (Math.random()-.5), 1.4, '#ffd27f', 2);
-        powerHum();
-      }
       labels.push({x:p.x, y:p.y, z:p.z, s:p.txt, cat:p.cat, t:now});
       burst(p.x, p.y, p.z, 6, TEXT_COLOR[p.cat]);
       if(!save.seen.includes(p.txt)){ save.seen.push(p.txt); persist(); }
@@ -251,7 +252,7 @@ function step(dt){
     p.wake *= .975;
     if(p.solid) collide(p);
   }
-  atNode = lightCollect(dt, lightAng);
+  atNode = mouse.down ? lightCollect(dt, lightAng) : darkCollect(dt);
   if(atNode && Math.random() < .07) powerHum();
 
   // --- сдача звезде ---
@@ -263,6 +264,7 @@ function step(dt){
   if(carry.length) current(dt);
   callFragment(dt);
 
+  stepMind(dt);
   stepCreatures(dt);
   stepWhales(dt);
   stepHunters(dt);
@@ -280,7 +282,7 @@ function step(dt){
   if(low && Math.random() < .006) warble();
 
   // --- финальный выбор ---
-  if(coreOpen && !save.pending) for(const n of nodes)
+  if(coreOpen && !save.pending) for(const n of nodes())
     if(dist(STAR.x + n.dx, STAR.y, drone.x, drone.y) < 130 && Math.abs(zd(STAR.z, drone.z)) < .2) choose(n.id);
 }
 
@@ -301,6 +303,7 @@ function inBeam(x, y, z, ang, range){
 }
 
 // Всё берётся светом: держать луч, пока не заполнится. Один объект за раз.
+// Исключение — кадр с гейтом dark: он берётся темнотой, см. darkCollect.
 function lightCollect(dt, ang){
   if(!(mouse.down && drone.pwr > 0)){ beamFade(dt*2); return false; }
   let best = null, bd = 1e9, kind = null;
@@ -311,15 +314,18 @@ function lightCollect(dt, ang){
     if(d < bd){ bd = d; best = o; kind = k; }
   };
   for(const f of FRAGS)
-    if(!save.frags.includes(f.id) && !carry.includes(f.id) && phase === f.phase)
-      test(f, 'frag', f.x, f.y, f.z);
+    if(f.gate !== 'dark' && !fragTaken(f) && fragOpen(f)) test(f, 'frag', f.x, f.y, f.z);
   for(const r of RECORDS) if(!save.records.includes(r.id)) test(r, 'record', r.x, r.y, r.z);
+  for(const w of WRECKS)  if(!save.wrecks.includes(w.id))  test(w, 'wreck', w.x, w.y, w.z);
   for(const t of TEACHERS) if(!save.cmds.includes(t.cmd)) test(t, 'teach', t.x, t.y, t.z);
+  // ядро отвечает только вплотную: с дистанции звезда — просто свет
+  if(!save.records.includes(STAR_LOG.id) && dist(STAR.x, STAR.y, drone.x, drone.y) < 700)
+    test(STAR_LOG, 'star', STAR.x, STAR.y, STAR.z);
   for(let i = 0; i < nProps; i++){
     const p = props[i];
     if(p.dead) continue;
     if(p.photo && !save.photos.includes(p.photo.id)) test(p, 'photo', p.x, p.y, p.z);
-    else if((p.pow || p.glow) && now - (p.tapped || -99) > 25)
+    else if((p.pow || p.glow) && !p.spent)
       test(p, p.pow ? 'node' : 'beacon', p.x, p.y, p.z);
   }
   for(const h of hunters)                          // опасность важнее добычи: перебивает выбор
@@ -340,16 +346,36 @@ function lightCollect(dt, ang){
   switch(kind){
     case 'frag':   liftFrag(o); break;
     case 'record': takeRecord(o); break;
+    case 'wreck':  takeWreck(o); break;
+    case 'star':   readStar(); break;
     case 'teach':  learn(o.cmd, o.text); break;
     case 'photo':  enterPhoto(o); break;
     case 'hunter': scareHunter(o); break;
     default:
-      o.tapped = now;
+      o.spent = true;                             // узел пуст до конца цикла, а не 25 секунд
       drone.pwr = Math.min(PWR_MAX, drone.pwr + (kind === 'node' ? PWR_TAP : PWR_TAP_B));
       burst(o.x, o.y, o.z, 26, '#ffd27f'); powerHum();
       toast('УЗЕЛ ВЫКАЧАН', null, '#ffd27f');
   }
   return kind === 'node';
+}
+
+// Кадр с гейтом dark берётся наоборот: погасить фонарь, подойти, замереть, стихнуть.
+// Прогресс рисуется тем же кольцом, что и у луча — отдельного индикатора не нужно.
+function darkCollect(dt){
+  const f = FRAGS.find(f => f.gate === 'dark' && !fragTaken(f));
+  if(!f){ beamFade(dt*2); return false; }
+  const near = dist(f.x, f.y, drone.x, drone.y) < 260 && Math.abs(zd(f.z, drone.z)) < .07;
+  if(!(near && stabilize && fragOpen(f))){ beamFade(dt*2); return false; }
+
+  if(!beam || beam.o !== f) beam = {o:f, kind:'frag', t:0, need:LIGHT_T.frag};
+  beam.t += dt;
+  if(Math.random() < dt*8)
+    spawn(f.x + (Math.random()-.5)*200, f.y + (Math.random()-.5)*200, f.z,
+          wrapD(drone.x-f.x,W)*.004, wrapD(drone.y-f.y,H)*.004, .9, '#7f9aa8', 2);
+  if(Math.random() < dt*2.5) charging(beam.t/beam.need);
+  if(beam.t >= beam.need){ beam = null; liftFrag(f); }
+  return false;
 }
 
 // упругий отбой от препятствия + потеря энергии
@@ -407,18 +433,20 @@ function current(dt){
   }
 }
 
-// активный кадр в свою фазу подтягивает к себе взвесь и тихо звенит
+// кадр в свой час подтягивает к себе взвесь и тихо звенит.
+// когда условие выполнено прямо сейчас — зов резко громче: это и есть подсказка «бери».
 function callFragment(dt){
-  const f = FRAGS.find(f => f.phase === phase && !save.frags.includes(f.id) && !carry.includes(f.id));
+  const f = FRAGS.find(f => fragArmed(f) && !fragTaken(f));
   if(!f) return;
   const d = dist(f.x, f.y, drone.x, drone.y);
   if(d > 3200) return;
-  for(let i = 0; i < 2; i++){
+  const open = fragOpen(f);
+  for(let i = 0; i < (open ? 5 : 2); i++){
     const a2 = Math.random()*6.28, r = 260 + Math.random()*300;
     spawn(f.x + Math.cos(a2)*r, f.y + Math.sin(a2)*r, f.z,
-          -Math.cos(a2)*2.2, -Math.sin(a2)*2.2, 1.4, '#ffd27f', 1.4);
+          -Math.cos(a2)*2.2, -Math.sin(a2)*2.2, 1.4, open ? '#ffe9b0' : '#ffd27f', 1.4);
   }
-  if(Math.random() < dt*(d < 1200 ? 1.6 : .5)) fragCall(1 - d/3200);
+  if(Math.random() < dt*(d < 1200 ? 1.6 : .5)*(open ? 2 : 1)) fragCall((1 - d/3200)*(open ? 1.6 : 1));
 }
 
 function stepWhales(dt){
@@ -608,8 +636,15 @@ function stepGhosts(dt){
 
 function choose(id){
   save.ending = id; persist();
+  if(id === 'PURGE PROCESS 1' || id === 'HALT PROCESS 1'){
+    finale = {t: now, stage: 0, mode: id === 'PURGE PROCESS 1' ? 'burst' : 'dark'};
+    note(id);
+    if(finale.mode === 'burst'){ starPulse = 5; collapse(); }
+    else { starPulse = 0; fadeOut(); }
+    return;
+  }
   if(id === 'COMPLETE RESTORE'){
-    finale = {t: now, stage: 0};                   // звезда начинает втягивать
+    finale = {t: now, stage: 0, mode: 'loop'};     // звезда начинает втягивать
     note('FINAL_0001.JPG восстановлен.');
     starPulse = 3; finaleRoar();
   } else {
@@ -624,8 +659,47 @@ function choose(id){
   }
 }
 
+// ---- освобождение: процесс снимается. два способа, обе — конец петли ----
+// burst: ядро идёт вразнос, кэш выбрасывает наружу, диск размагничивается.
+// dark:  процесс просто останавливают. объекты гаснут пачками, остаётся вода.
+function stepRelease(dt){
+  const T = now - finale.t, burst_ = finale.mode === 'burst';
+  finale.stage = T < 6 ? 0 : T < 13 ? 1 : T < 20 ? 2 : 3;
+  shake = burst_ ? Math.min(34, T*2.4) : Math.max(0, 6 - T);
+  glitch = burst_ ? Math.min(2.6, T*.22) : Math.max(0, .8 - T*.05);
+  starPulse = burst_ ? Math.min(7, T*.5) : Math.max(0, 1.2 - T*.09);
+
+  // мир редеет: во взрыве его выносит наружу, в тишине — просто перестаёт отрисовываться
+  const kill = Math.min(nProps, Math.floor(T/20*nProps));
+  for(let i = 0; i < kill; i++) props[i].dead = true;
+  nLife = Math.max(0, Math.floor(BASE_LIFE*(1 - T/20)));
+
+  for(let i = 0; i < (burst_ ? 14 : 3); i++){
+    const a = Math.random()*6.28, r = 300 + Math.random()*3400;
+    const px = wrap(STAR.x + Math.cos(a)*r, W), py = wrap(STAR.y + Math.sin(a)*r, H);
+    const sp = burst_ ? 6 + Math.random()*16 : -(1 + Math.random()*2);
+    spawn(px, py, drone.z + (Math.random()-.5)*.25, Math.cos(a)*sp, Math.sin(a)*sp, 2.2,
+          burst_ ? ['#ffffff','#ffe9b0','#ff8f8f'][(Math.random()*3)|0] : '#2c4a3c', burst_ ? 3 : 1.4);
+  }
+  if(burst_){                                     // ударная волна расталкивает дрона
+    const d = dist(drone.x, drone.y, STAR.x, STAR.y) || 1;
+    drone.vx += wrapD(drone.x - STAR.x, W)/d*T*.9*dt;
+    drone.vy += wrapD(drone.y - STAR.y, H)/d*T*.9*dt;
+  }
+  drone.x = wrap(drone.x + drone.vx, W); drone.y = wrap(drone.y + drone.vy, H);
+  drone.vx *= .985; drone.vy *= .985;
+  cam.x = wrap(cam.x + wrapD(drone.x - cam.x, W)*.06, W);
+  cam.y = wrap(cam.y + wrapD(drone.y - cam.y, H)*.06, H);
+  if(Math.random() < dt*(burst_ ? 6 : 1)) finaleTick();
+  if(finale.stage === 3 && !finale.done){
+    finale.done = true; flash = burst_ ? 6 : 0;
+    saveTrack(); save.pending = true; persist();
+  }
+}
+
 // ---- финал: звезда рвёт изображение, втягивает дрона и записывает его ----
 function stepFinale(dt){
+  if(finale.mode === 'burst' || finale.mode === 'dark') return stepRelease(dt);
   const T = now - finale.t;
   finale.stage = T < 6 ? 0 : T < 13 ? 1 : T < 19 ? 2 : 3;
   glitch = Math.min(2.2, .3 + T*.18);

@@ -5,7 +5,9 @@ canvas{display:block}
 #ui{position:fixed;inset:0;pointer-events:none;white-space:pre;text-shadow:0 0 6px #1d3a28}
 #hud{position:absolute;top:10px;left:12px;opacity:.85}
 #log{position:absolute;top:10px;right:12px;text-align:right;opacity:.7;max-width:48ch;white-space:pre-wrap}
-#hint{position:absolute;bottom:34px;left:12px;opacity:.45}
+/* мысль дрона: не подсказка системы, а его собственный голос — потому курсивом и тише */
+#hint{position:absolute;bottom:38px;left:12px;max-width:62ch;white-space:pre-wrap;
+  font-style:italic;color:#9fc9ae;transition:opacity .6s linear}
 #term{position:absolute;bottom:10px;left:12px;color:#cfe8d6;white-space:pre}
 
 /* панель события: мир замирает, пока читаешь */

@@ -61,6 +61,12 @@ const indexPing = () => beep(2000, .12, .03, 'square', 1400);
 const ghostWhisper = () => { hiss(.6, .025, 900 + Math.random()*600, 2); beep(220, .5, .015, 'sine', 180); };
 const finaleRoar= () => { beep(40, 6, .12, 'sawtooth', 180); hiss(6, .07, 300, .3); };
 const finaleTick= () => beep(400 + Math.random()*2600, .05, .03, 'square');
+const clueSting = () => { beep(392, .7, .04, 'sine', 587); beep(587, 1.1, .025, 'sine', 784); };
+const wreckHum  = () => { hiss(1.8, .035, 220, .7); beep(87, 1.6, .05, 'triangle', 65); };
+const starVoice = () => { beep(65, 4, .07, 'sine', 98); beep(196, 3.4, .03, 'sine', 262);
+                          hiss(3.2, .025, 400, .4); };
+const collapse  = () => { beep(2400, 3.5, .1, 'sawtooth', 30); hiss(4, .09, 900, .3); };
+const fadeOut   = () => { beep(160, 5, .05, 'sine', 40); hiss(5, .02, 200, .5); };
 const phaseSting= p => {
   if(p === 'INDEX')    { beep(600, .5, .05, 'sine', 1400); }
   if(p === 'NET')      { beep(1800, .6, .04, 'sine', 900); beep(2100, .6, .03, 'sine', 1100); }

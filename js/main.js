@@ -35,6 +35,19 @@ DIAGNOSTIC DRONE PING-7 ......... ОЖИДАЕТ КОМАНДЫ`,
 
 команд не выдано. задач не поставлено.</span>`,
 
+// управление живёт здесь, а не в HUD: в воде дрон должен думать, а не читать инструкцию
+`ИНТЕРФЕЙС ДРОНА PING-7
+
+  мышь ......... тяга. дрон тяжёлый, тормозить надо заранее
+  ЛКМ .......... фонарь. держать луч на объекте, пока не вскроется.
+                 единственный способ добыть энергию — и самый громкий
+  ПРОБЕЛ ....... коротко: импульс сонара. видит, но не кормит
+                 держать: замереть, стабилизация, медленная зарядка
+  колесо ....... слой глубины. слоёв 50, они замкнуты в кольцо
+  T ............ терминал        M ............ журнал
+
+<span class="dim">задач тебе не выдадут. смотри, что не сходится.</span>`,
+
 `<span class="dim">консоль свободна. дрон отвечает на одну команду.</span>
 
 <b>&gt; WAKE PING-7</b>`);
@@ -134,14 +147,50 @@ function loop(){
   if(save.pending && !paused) finish();
 }
 
-// COMPLETE RESTORE: звезда дописала последний кадр — им оказался ты
-function finish(){
-  running = false; save.pending = false;
-  const cycles = save.cycles, ghosts = save.ghosts.length;
-  save.frags = []; save.seen = []; save.photos = []; save.zones = [];
-  save.records = []; save.cycles = 0; save.intro = false; persist();
-  $boot.style.display = 'block';
-  $boot.innerHTML =
+// ---- эпилоги ----
+// LOOP: звезда дописала последний кадр — им оказался ты. петля не разомкнута.
+// BURST/DARK: процесс снят. эти два доступны только тому, кто понял, что такое звезда.
+function epilogue(cycles, ghosts){
+  const tail = `\nциклов пройдено: ${cycles}   ·   следов в архиве: ${ghosts}\n`;
+  if(save.ending === 'PURGE PROCESS 1') return (
+`<b>PURGE PROCESS 1 ............... ВЫПОЛНЕНО</b>
+
+ЯДРО ............................ РАЗОМКНУТО
+КЭШ ............................. ВЫБРОШЕН В НЕРАСПРЕДЕЛЁННУЮ ОБЛАСТЬ
+НОСИТЕЛЬ ........................ РАЗМАГНИЧЕН
+ПРОЦЕССОВ ЗАВЕРШЕНО ............. 1
+
+<span class="dim">она держала свет четыре тысячи циклов, чтобы кому-то было видно.
+ты сделал единственное, чего она не могла сделать сама: погасил её резко.
+
+всё, что она дописала из себя, вышло наружу одновременно.
+сорок лет чужой памяти — за одну секунду и без свидетелей.
+ни один кадр не сохранился, включая тот, который искали.
+
+это не восстановление. это разрешение больше не пытаться.
+${tail}
+ДИСК 0 .......................... НЕ ГОТОВ
+ПОВТОР ............................ НЕТ</span>`);
+
+  if(save.ending === 'HALT PROCESS 1') return (
+`<b>HALT PROCESS 1 ................ ВЫПОЛНЕНО</b>
+
+СИГНАЛ ЗАВЕРШЕНИЯ ............... ДОСТАВЛЕН
+ЗАДАЧ В ОЧЕРЕДИ ................. 0
+ПРОЦЕССОВ ЗАВЕРШЕНО ............. 1
+
+<span class="dim">ты ничего не сломал. ты просто сказал ему, что можно перестать.
+
+свет садился медленно, снизу вверх, как остывающая нить.
+объекты переставали отрисовываться не сразу — по одному,
+будто система каждый раз спрашивала, точно ли не нужно.
+
+последним погас ты. вода осталась. она и была здесь до всех.
+${tail}
+ДИСК 0 .......................... ОСТАНОВЛЕН
+ПОВТОР ............................ НЕТ</span>`);
+
+  return (
 `<b>RESTORE FINAL_0001.JPG ........ 100%</b>
 
 ИСТОЧНИК КАДРА .................. НАЙДЕН В ПАМЯТИ ПРОЦЕССА 1
@@ -156,14 +205,23 @@ function finish(){
 на снимке человек за этим компьютером.
 рядом второй, полупрозрачный, чуть отстающий,
 как запись, которую проигрывают медленнее, чем писали.
-
-циклов пройдено: ${cycles}   ·   следов в архиве: ${ghosts}
-
+${tail}
 RESTORE FINAL_0001.JPG .......... 61% ... 61% ... 61%
 ОТКАТ К РЕЗЕРВНОЙ ТОЧКЕ
-ПОВТОР ЧЕРЕЗ 480 СЕК</span>
+ПОВТОР ЧЕРЕЗ 480 СЕК</span>`);
+}
 
-<b>[ENTER]</b>`;
+function finish(){
+  running = false; save.pending = false;
+  const cycles = save.cycles, ghosts = save.ghosts.length, ending = save.ending;
+  save.frags = []; save.seen = []; save.photos = []; save.zones = [];
+  save.records = []; save.cycles = 0; save.intro = false;
+  // знание — единственное, что переживает петлю только в её продолжении.
+  // снял процесс — память тоже уходит: перезапуск начинается с чистого дрона.
+  if(ending && ending.endsWith('PROCESS 1')){ save.clues = []; save.wrecks = []; save.thoughts = []; }
+  persist();
+  $boot.style.display = 'block';
+  $boot.innerHTML = epilogue(cycles, ghosts) + '\n\n<b>[ENTER]</b>';
   addEventListener('keydown', function again(e){
     if(e.key !== 'Enter') return;
     removeEventListener('keydown', again);
@@ -183,6 +241,10 @@ if(location.hash === '#test'){
   eq(zoneAt(RECORDS[0].y),'BOOT SECTOR','RECORD_0 лежит во вступительной зоне');
   eq(FRAGS.every(f => zoneAt(f.y) === f.zone), true, 'фрагменты в заявленных зонах');
   eq(FRAGS.every(f => zoneAt(f.y) !== 'BOOT SECTOR'), true, 'во вступлении фрагментов нет');
+  eq(FRAGS.every(f => f.gate in GATE_PHASE), true, 'у каждого кадра известный гейт');
+  eq(FRAGS.every(f => typeof fragOpen(f) === 'boolean'), true, 'гейт всегда отвечает да/нет');
+  eq(FRAGS.filter(f => f.gate === 'dark').length, 1, 'сбор темнотой ровно у одного кадра');
+  eq(new Set(FRAGS.map(f => f.gate)).size, FRAGS.length, 'гейты не повторяются');
   eq(Math.round(wrapD(10 - (W-10), W)), 20, 'мир замкнут по X');
   eq(+zd(.02, .98).toFixed(3), .04, 'глубина замкнута в кольцо');
   eq(Object.keys(LIGHT_T).every(k => LIGHT_T[k] >= 1.0), true, 'всё вскрывается не мгновенно');
@@ -190,9 +252,33 @@ if(location.hash === '#test'){
   eq(props.length, BASE_PROPS + GROW_PROPS*4, 'пул объектов рассчитан на полный рост');
   eq(nProps, BASE_PROPS + GROW_PROPS*delivered(), 'активных объектов по числу сданных');
   eq(props.every(p => !p.photo || zoneAt(p.y) === 'PHOTO ARCHIVE'), true, 'фотографии только в архиве');
-  eq([...new Set(MAP_LINKS.flat())].every(id => typeof known(id) === 'boolean'),
-     true, 'каждый узел карты имеет условие обнаружения');
-  eq(['star','frag','node','far'].includes(currentGoal().kind), true, 'сонару всегда есть что ответить');
+  eq(['star','frag','node','far','wreck','haven'].includes(currentGoal().kind), true,
+     'сонару всегда есть что ответить');
+
+  // --- слой расследования ---
+  const CID = CLUES.map(c => c.id);
+  eq(new Set(CID).size, CLUES.length, 'улики не дублируются');
+  eq(QUESTIONS.every(q => CID.includes(q.id)), true, 'каждый вопрос ведёт к существующей улике');
+  eq(QUESTIONS.every(q => q.need.every(n => CID.includes(n))), true, 'предпосылки вопросов существуют');
+  eq(QUESTIONS.some(q => !q.need.length), true, 'хотя бы один вопрос доступен с нуля');
+  eq(CORE_CLUES().length > 0, true, 'освобождение чем-то гейтится');
+  eq(CORE_CLUES().every(id => WRECKS.some(w => w.clue === id) || RECORDS.some(r => r.clue === id) ||
+       ['K_DEEPER','K_STARWAS','K_COST'].includes(id)), true, 'у каждой ядровой улики есть источник');
+  eq(typeof knowsAll(), 'boolean', 'гейт освобождения всегда разрешим');
+  eq(nodes().length, knowsAll() ? 4 : 2, 'узлов в ядре ровно по объёму понятого');
+
+  eq(WRECKS.every((w, i) => !i || w.z > WRECKS[i-1].z), true, 'обломки лежат лесенкой вниз');
+  eq(WRECKS.every(w => !havenAt(w.x, w.y)), true, 'обломки лежат не в тишине');
+  eq(WRECKS.every(w => zoneAt(w.y) !== 'BOOT SECTOR'), true, 'во вступлении обломков нет');
+  eq(WRECKS[WRECKS.length-1].z < STAR.z, true, 'звезда глубже последнего обломка');
+  eq(LIGHT_T.wreck > 0 && LIGHT_T.star > LIGHT_T.wreck, true, 'ядро вскрывается дольше обломка');
+  eq(STAR_LOG.x === STAR.x && STAR_LOG.z === STAR.z, true, 'лог звезды лежит в самой звезде');
+
+  // энергия: сонар видит, но не кормит — иначе фонарь не нужен
+  eq(step.toString().includes('PWR_TAP'), false, 'импульс сонара не выкачивает узлы');
+  eq(lightCollect.toString().includes('PWR_TAP'), true, 'узлы выкачивает только фонарь');
+  eq(starR() < STAR.R || delivered() === 0, true, 'звезда садится за каждый сданный фрагмент');
+  eq(Math.round(STAR.R*(1 - 4*STAR_DIM)) > 0, true, 'звезда не гаснет полностью до финала');
   eq(GHOST_MAX > 0 && GHOST_STEP > 0, true, 'призраки пишутся');
   eq(HUNT_SPEED < .4, true, 'охотник заметно медленнее дрона');
   eq(LIGHT_T.hunter < LIGHT_T.frag, true, 'отпугнуть быстрее, чем поднять кадр');
