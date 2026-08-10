@@ -248,7 +248,9 @@ if(location.hash === '#test'){
   eq(Math.round(wrapD(10 - (W-10), W)), 20, 'мир замкнут по X');
   eq(+zd(.02, .98).toFixed(3), .04, 'глубина замкнута в кольцо');
   eq(Object.keys(LIGHT_T).every(k => LIGHT_T[k] >= 1.0), true, 'всё вскрывается не мгновенно');
-  eq(PWR_TAP > LIGHT_T.node*PWR_LIGHT, true, 'выкачка узла окупает потраченный свет');
+  eq(PWR_TAP_MIN > LIGHT_T.node*PWR_LIGHT, true, 'даже спущенный узел окупает потраченный свет');
+  eq(PWR_TAP_MAX > PWR_TAP_MIN*2, true, 'ждать, пока узел набухнет, заметно выгоднее');
+  eq(NODE_RATE < .05, true, 'узлов стало меньше — иначе энергия никогда не кончается');
   eq(props.length, BASE_PROPS + GROW_PROPS*4, 'пул объектов рассчитан на полный рост');
   eq(nProps, BASE_PROPS + GROW_PROPS*delivered(), 'активных объектов по числу сданных');
   eq(props.every(p => !p.photo || zoneAt(p.y) === 'PHOTO ARCHIVE'), true, 'фотографии только в архиве');
@@ -275,8 +277,26 @@ if(location.hash === '#test'){
   eq(STAR_LOG.x === STAR.x && STAR_LOG.z === STAR.z, true, 'лог звезды лежит в самой звезде');
 
   // энергия: сонар видит, но не кормит — иначе фонарь не нужен
-  eq(step.toString().includes('PWR_TAP'), false, 'импульс сонара не выкачивает узлы');
-  eq(lightCollect.toString().includes('PWR_TAP'), true, 'узлы выкачивает только фонарь');
+  eq(step.toString().includes('nodeYield'), false, 'импульс сонара не выкачивает узлы');
+  eq(lightCollect.toString().includes('nodeYield'), true, 'узлы выкачивает только фонарь');
+
+  // ключевые объекты: единый розовый и внятный отклик сонара
+  eq(questTargets().every(q => q.name && q.o && typeof q.o.x === 'number'),
+     true, 'каждый ключевой объект называется и имеет координату');
+  eq(new Set(questTargets().map(q => q.kind)).size > 1, true, 'зов работает не только на кадры');
+  eq(['star','frag','node','far','wreck','haven'].every(k => ECHO_NAME[k] || k === 'haven'),
+     true, 'у каждого отклика сонара есть имя');
+  eq(QCOL !== PALETTE.psu && QCOL !== PALETTE.beacon, true, 'розовый не занят декором');
+
+  // терминал ведёт себя как оболочка
+  termText = 'PING'; complete();
+  eq(termText, 'PING LOST_NODE', 'TAB дописывает по единственному совпадению');
+  termHist = ['HELP', 'PING LOST_NODE']; termIdx = -1; termText = 'ЧЕР';
+  histStep(1);  eq(termText, 'HELP', 'стрелка вверх достаёт последнюю команду');
+  histStep(1);  eq(termText, 'PING LOST_NODE', 'вторая вверх — предыдущую');
+  histStep(-1); eq(termText, 'HELP', 'вниз возвращает обратно');
+  histStep(-1); eq(termText, 'ЧЕР', 'недописанный ввод не потерялся');
+  termHist = []; termText = ''; termIdx = -1;
   eq(starR() < STAR.R || delivered() === 0, true, 'звезда садится за каждый сданный фрагмент');
   eq(Math.round(STAR.R*(1 - 4*STAR_DIM)) > 0, true, 'звезда не гаснет полностью до финала');
   eq(GHOST_MAX > 0 && GHOST_STEP > 0, true, 'призраки пишутся');

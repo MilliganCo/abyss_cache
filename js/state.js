@@ -67,6 +67,7 @@ let running=false, paused=false, pauseAt=0;
 let pulses=[], labels=[], flash=0, shake=0, stabilize=false;
 let noise=0, glitch=0, quiet=0, scanReady=0;
 let huntNear=0, huntSense=0, huntCD=0, mapOpen=false;
+let questNear=0, questLead=null, blips=[];     // зов ключевых объектов и засветки от импульса
 let echo=null;                                 // отклик сонара: направление на то, что сейчас важно
 let spaceAt=0, beam=null, gateBreak=0;         // beam — объект, который сейчас держим лучом
 let haven=null;                                // защищённая страница памяти, если стоим внутри
@@ -76,6 +77,7 @@ let carry=[];                                  // фрагменты в мани
 let colorFlash=null;                           // единственный источник цвета: восстановленный кадр
 let mountUntil=0, pingArrow=null;
 let termOpen=false, termText='', termEcho='', termEchoT=-99;
+let termHist=[], termIdx=-1, termStash='';     // история по стрелкам, как в настоящей оболочке
 let waveY=-1e5, purgeY=-1e5, coreOpen=false;
 
 const delivered = () => save.frags.length;
@@ -208,6 +210,31 @@ function termList(){
     .map(c => '  ' + c.padEnd(20) + COMMANDS[c].desc).join('\n');
 }
 
+// TAB достраивает по общему префиксу известных команд; второй TAB на развилке
+// показывает варианты — поведение обычной оболочки, без сюрпризов.
+function complete(){
+  const pre = termText.toUpperCase();
+  const hits = Object.keys(COMMANDS).filter(c => cmdKnown(c) && c.startsWith(pre));
+  if(!hits.length){ sonarFail(); return; }
+  let common = hits[0];
+  for(const h of hits)
+    while(!h.startsWith(common)) common = common.slice(0, -1);
+  if(common.length > termText.length){ termText = common; key(); }
+  else if(hits.length > 1){ termEcho = hits.join('   '); termEchoT = now; }
+}
+
+// стрелки листают историю; dir = +1 назад по времени. недописанный ввод не теряется
+function histStep(dir){
+  if(!termHist.length) return;
+  if(termIdx === -1){
+    if(dir < 0) return;                       // вниз из живого ввода — некуда
+    termStash = termText;
+  }
+  termIdx = Math.max(-1, Math.min(termHist.length - 1, termIdx + dir));
+  termText = termIdx === -1 ? termStash : termHist[termIdx];
+  key();
+}
+
 function submit(cmd){
   termEchoT = now;
   if(!COMMANDS[cmd]) return termEcho = '> ' + cmd + '\n  :: unknown token';
@@ -277,13 +304,21 @@ addEventListener('keydown', e => {
   if(!running) return;                     // загрузочным экраном управляет main.js
   if(paused){ if(['Enter','Escape',' '].includes(e.key)) closeEvent(); e.preventDefault(); return; }
   if(termOpen){
-    if(e.key === 'Enter'){ submit(termText.trim().toUpperCase()); termText=''; termOpen=false; }
-    else if(e.key === 'Escape'){ termOpen = false; termText = ''; }
-    else if(e.key === 'Backspace') termText = termText.slice(0,-1);
-    else if(e.key.length === 1) termText += e.key;
+    if(e.key === 'Enter'){
+      const line = termText.trim();
+      if(line && termHist[0] !== line.toUpperCase()) termHist.unshift(line.toUpperCase());
+      termHist.length = Math.min(termHist.length, 24);
+      submit(line.toUpperCase()); termText = ''; termIdx = -1; termOpen = false;
+    }
+    else if(e.key === 'Escape'){ termOpen = false; termText = ''; termIdx = -1; }
+    else if(e.key === 'Tab') complete();
+    else if(e.key === 'ArrowUp')   histStep(1);
+    else if(e.key === 'ArrowDown') histStep(-1);
+    else if(e.key === 'Backspace'){ termText = termText.slice(0,-1); termIdx = -1; }
+    else if(e.key.length === 1){ termText += e.key; termIdx = -1; }
     e.preventDefault(); return;
   }
-  if('tTеЕ'.includes(e.key)){ termOpen = true; termText = ''; }
+  if('tTеЕ'.includes(e.key)){ termOpen = true; termText = ''; termIdx = -1; }
   if('mMьЬ'.includes(e.key)){ mapOpen = !mapOpen; dive(); }
   if(e.code === 'Space' && !e.repeat){ spaceAt = now; stabilize = true; e.preventDefault(); }
 });

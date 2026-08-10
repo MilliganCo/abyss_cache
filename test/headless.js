@@ -66,6 +66,25 @@ try {
   OK(carry.includes(f0.id) || save.frags.includes(f0.id), 'кадр dark не берётся темнотой');
   stabilize = false; carry = [];
 
+  // 3b. импульс метит ключевые объекты вокруг, а зов растёт по мере приближения
+  const w0 = WRECKS[0];
+  drone.x = w0.x + 600; drone.y = w0.y; drone.z = w0.z; cam.x = drone.x; cam.y = drone.y;
+  blips = []; scanReady = 0; drone.pwr = PWR_MAX; firePulse(); tickN(2, .05);
+  OK(blips.some(b => b.name.includes('ОБЛОМОК')), 'импульс не пометил обломок рядом');
+  OK(blips.every(b => b.name && b.d >= 0), 'засветка без имени или дистанции');
+  const nearHere = questNear;
+  drone.x = w0.x + 2400; tickN(2, .05);
+  OK(questNear < nearHere, 'зов не слабеет с расстоянием: ' + nearHere + ' -> ' + questNear);
+
+  // 3c. узел дышит: отдача идёт по текущему размеру, а не фиксированная
+  const psu = props.find(p => p.pow);
+  const ys = [];
+  for(let i = 0; i < 40; i++){ now = t + i*NODE_PERIOD/8; ys.push(nodeYield(psu)); }
+  now = t;
+  OK(Math.max(...ys) - Math.min(...ys) > 20, 'узел не дышит: отдача постоянна');
+  OK(Math.min(...ys) >= PWR_TAP_MIN - .01 && Math.max(...ys) <= PWR_TAP_MAX + .01,
+     'отдача узла вышла за границы');
+
   // 4. знание открывает четвёртый узел и оба финала освобождения
   OK(nodes().length === 2, 'узлов освобождения быть не должно без улик');
   CLUES.filter(c => c.core).forEach(c => save.clues.push(c.id));

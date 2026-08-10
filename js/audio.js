@@ -1,13 +1,22 @@
 // Звук как навигация: гул вентилятора, диск, модем, энергия, преследователь.
 
-let A = null, hum = null, humG = null, noiseBuf = null;
+let A = null, hum = null, humG = null, noiseBuf = null, out = null;
 
+// Всё идёт через одну мягкую шину: НЧ-фильтр срезает звон, лёгкая компрессия
+// не даёт совпавшим звукам сложиться в резь. Эмбиент должен быть фоном, а не давлением.
 function audioInit(){
   if(A) return;
   A = new (window.AudioContext || window.webkitAudioContext)();
+
+  const lp = A.createBiquadFilter(), comp = A.createDynamicsCompressor();
+  lp.type = 'lowpass'; lp.frequency.value = 2200; lp.Q.value = .4;
+  comp.threshold.value = -26; comp.ratio.value = 6; comp.attack.value = .004; comp.release.value = .3;
+  out = A.createGain(); out.gain.value = .85;
+  out.connect(lp).connect(comp).connect(A.destination);
+
   hum = A.createOscillator(); humG = A.createGain();
-  hum.type = 'sawtooth'; hum.frequency.value = 50; humG.gain.value = .03;
-  hum.connect(humG).connect(A.destination); hum.start();
+  hum.type = 'triangle'; hum.frequency.value = 46; humG.gain.value = .022;   // мягче пилы
+  hum.connect(humG).connect(out); hum.start();
 
   noiseBuf = A.createBuffer(1, A.sampleRate, A.sampleRate);
   const d = noiseBuf.getChannelData(0);
@@ -16,27 +25,31 @@ function audioInit(){
   setInterval(tick, 200);
 }
 
+// атака не мгновенная: щелчок в начале ноты и есть то, что режет уши
 function beep(f, dur, vol, type, slideTo){
   if(!A) return;
-  const o = A.createOscillator(), g = A.createGain();
-  o.type = type || 'square'; o.frequency.value = f;
-  if(slideTo) o.frequency.exponentialRampToValueAtTime(slideTo, A.currentTime + dur);
-  g.gain.setValueAtTime(vol, A.currentTime);
-  g.gain.exponentialRampToValueAtTime(.0005, A.currentTime + dur);
-  o.connect(g).connect(A.destination); o.start(); o.stop(A.currentTime + dur + .02);
+  const o = A.createOscillator(), g = A.createGain(), t = A.currentTime;
+  o.type = type || 'triangle'; o.frequency.value = f;
+  if(slideTo) o.frequency.exponentialRampToValueAtTime(slideTo, t + dur);
+  g.gain.setValueAtTime(.0005, t);
+  g.gain.exponentialRampToValueAtTime(vol, t + Math.min(.05, dur*.25));
+  g.gain.exponentialRampToValueAtTime(.0005, t + dur);
+  o.connect(g).connect(out); o.start(); o.stop(t + dur + .02);
 }
 
 function hiss(dur, vol, freq, q){
   if(!A) return;
   const src = A.createBufferSource(), f = A.createBiquadFilter(), g = A.createGain();
+  const t = A.currentTime;
   src.buffer = noiseBuf; src.loop = true;
   f.type = 'bandpass'; f.frequency.value = freq; f.Q.value = q || 1;
-  g.gain.setValueAtTime(vol, A.currentTime);
-  g.gain.exponentialRampToValueAtTime(.0005, A.currentTime + dur);
-  src.connect(f).connect(g).connect(A.destination); src.start(); src.stop(A.currentTime + dur);
+  g.gain.setValueAtTime(.0005, t);
+  g.gain.exponentialRampToValueAtTime(vol, t + Math.min(.08, dur*.3));
+  g.gain.exponentialRampToValueAtTime(.0005, t + dur);
+  src.connect(f).connect(g).connect(out); src.start(); src.stop(t + dur);
 }
 
-const click     = () => beep(700 + Math.random()*500, .05, .05);
+const click     = () => beep(420 + Math.random()*260, .07, .022, 'triangle');   // работа диска, не писк
 const key       = () => beep(1200 + Math.random()*700, .012, .012, 'square');   // стук клавиш
 const chime     = () => { beep(320, .9, .07, 'sine'); beep(482, 1.4, .05, 'sine'); };
 const sonar     = () => { beep(1500, .5, .05, 'sine', 420); hiss(.25, .02, 2400, 3); };
@@ -61,6 +74,9 @@ const indexPing = () => beep(2000, .12, .03, 'square', 1400);
 const ghostWhisper = () => { hiss(.6, .025, 900 + Math.random()*600, 2); beep(220, .5, .015, 'sine', 180); };
 const finaleRoar= () => { beep(40, 6, .12, 'sawtooth', 180); hiss(6, .07, 300, .3); };
 const finaleTick= () => beep(400 + Math.random()*2600, .05, .03, 'square');
+// зов квестового объекта: чем ближе, тем чище и выше. k = 0..1 по близости
+const questPing = k => { beep(523 + k*262, .5 + k*.5, .012 + k*.028, 'sine');
+                         if(k > .55) beep(1046 + k*262, .4, .008 + k*.012, 'sine'); };
 const clueSting = () => { beep(392, .7, .04, 'sine', 587); beep(587, 1.1, .025, 'sine', 784); };
 const wreckHum  = () => { hiss(1.8, .035, 220, .7); beep(87, 1.6, .05, 'triangle', 65); };
 const starVoice = () => { beep(65, 4, .07, 'sine', 98); beep(196, 3.4, .03, 'sine', 262);
@@ -75,14 +91,19 @@ const phaseSting= p => {
   if(p === 'BOOT')     { beep(440, .4, .05, 'sine', 880); }
 };
 
+// Фон должен быть редким. Раньше он сыпал по несколько звуков в секунду —
+// от этого и «шумит в уши»: событий не слышно, потому что фон занял всё место.
 function tick(){
   if(!A) return;
-  hum.frequency.value = 50 + (phase === 'OVERHEAT' ? 30 : 0) + drone.y/H*10 + Math.sin(now)*2;
-  humG.gain.value = paused ? .012 : .03 + starLight(drone.x, drone.y)*.02;
+  hum.frequency.value = 46 + (phase === 'OVERHEAT' ? 26 : 0) + drone.y/H*8 + Math.sin(now)*1.5;
+  humG.gain.value = paused ? .010 : .022 + starLight(drone.x, drone.y)*.014;
   if(paused) return;
-  if(Math.random() < (phase === 'INDEX' ? .5 : .12)) click();
-  if(phase === 'NET'   && Math.random() < .12) beep(1200 + Math.random()*900, .25, .02, 'sine');
-  if(phase === 'PURGE' && Math.random() < .2)  beep(90 + Math.random()*40, .4, .03, 'triangle');
-  if(hunters.length && Math.random() < .08) hiss(.4, .02, 200 + Math.random()*300, .8);
-  if(drone.pwr < PWR_LOW && Math.random() < .25) beep(1400, .06, .02, 'square');
+  if(Math.random() < (phase === 'INDEX' ? .12 : .035)) click();
+  if(phase === 'NET'   && Math.random() < .05) beep(700 + Math.random()*400, .3, .012, 'sine');
+  if(phase === 'PURGE' && Math.random() < .09) beep(84 + Math.random()*30, .5, .022, 'triangle');
+  if(hunters.length && Math.random() < .06) hiss(.5, .016, 180 + Math.random()*220, .8);
+  if(drone.pwr < PWR_LOW && Math.random() < .06) beep(760, .14, .014, 'triangle');
+
+  // зов ближайшего квестового объекта: частота ударов растёт по мере приближения
+  if(questNear > .04 && Math.random() < .12 + questNear*.7) questPing(questNear);
 }

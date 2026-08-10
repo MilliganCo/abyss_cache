@@ -102,10 +102,13 @@ function draw(){
     const a = fog(t.z); if(a <= .02) continue;
     const [x, y, k] = scr(t.x, t.y, t.z);
     if(!vis(x, y, 100)) continue;
-    g.globalAlpha = a*.9; g.strokeStyle = '#7fd9ff'; g.lineWidth = 1.4;
+    const got = save.cmds.includes(t.cmd);
+    g.globalAlpha = a*(got ? .4 : .95); g.strokeStyle = got ? '#4a2b42' : QCOL;
+    g.lineWidth = got ? 1.2 : 2;
     g.strokeRect(x - 48*k, y - 17*k, 96*k, 34*k);
-    g.beginPath(); g.arc(x, y, (54 + Math.sin(now*2)*4)*k, 0, 6.29); g.stroke();
-    if(save.cmds.includes(t.cmd)){ g.fillStyle = '#7fd9ff'; g.globalAlpha = a*.6; g.fillText(t.label, x - 34*k, y + 4*k); }
+    g.beginPath(); g.arc(x, y, (54 + Math.sin(now*2)*6)*k, 0, 6.29); g.stroke();
+    g.fillStyle = got ? '#7d3568' : QCOL_HOT; g.globalAlpha = a*(got ? .5 : .85);
+    g.fillText(t.label, x - 34*k, y + 4*k);
   }
 
   drawFrags();
@@ -117,6 +120,7 @@ function draw(){
     g.beginPath(); g.arc(x, y, p.r*k, 0, 6.29); g.stroke();
   }
 
+  drawBlips();
   drawPing();
 
   // стена очистки
@@ -243,9 +247,14 @@ function drawStar(){
       g.lineTo(x + s*S*.34, y + S*.1);
     }
     g.stroke();
-    if(!save.records.includes(STAR_LOG.id) && d < 700){   // подойти вплотную и посветить
-      g.globalAlpha = .35 + Math.sin(now*3)*.15; g.fillStyle = '#ffe9b0';
-      g.fillText('ЯДРО', x - 15, y - S*.6);
+    if(!save.records.includes(STAR_LOG.id)){              // подойти вплотную и посветить
+      const pul = .55 + Math.sin(now*2.6)*.45;
+      g.globalAlpha = v*(.35 + pul*.5); g.strokeStyle = QCOL; g.lineWidth = 2.2;
+      g.beginPath(); g.arc(x, y, S*(.42 + pul*.06), 0, 6.29); g.stroke();
+      if(d < 700){
+        g.globalAlpha = .4 + pul*.5; g.fillStyle = QCOL_HOT;
+        g.fillText('ЯДРО', x - 15, y - S*.6);
+      }
     }
   }
   if(carry.length){                                      // куда нести
@@ -267,11 +276,12 @@ function drawWrecks(){
     const got = save.wrecks.includes(w.id), a = fog(w.z);
     const d = dist(w.x, w.y, drone.x, drone.y);
     if(d > 6000) continue;
-    const [x, y, k] = scr(w.x, w.y, w.z), s = 150*k;
+    const pul = 1 + Math.sin(now*2.2)*.07;
+    const [x, y, k] = scr(w.x, w.y, w.z), s = 150*k*(got ? 1 : pul);
     if(!vis(x, y, s + 200)) continue;
     // силуэт читается и сквозь туман слоёв: это ориентир, а не мелочь
     g.globalAlpha = Math.max(a, .18)*(got ? .35 : .9);
-    g.strokeStyle = got ? '#3a5c48' : '#9fb8c9'; g.lineWidth = 2;
+    g.strokeStyle = got ? '#4a2b42' : QCOL; g.lineWidth = got ? 1.6 : 2.4;
     g.beginPath();
     g.arc(x, y, s*.30, 0, 6.29);                        // тот же силуэт, что у тебя
     g.moveTo(x - s*.8, y); g.lineTo(x + s*.8, y);
@@ -290,10 +300,13 @@ function drawWrecks(){
       g.strokeRect(x + Math.cos(an)*r, y + Math.sin(an)*r*.5, 8*k, 6*k);
     }
     if(!got){
-      g.globalAlpha = Math.max(a, .3)*.8; g.fillStyle = '#9fb8c9';
+      g.globalAlpha = Math.max(a, .3)*.85; g.fillStyle = QCOL_HOT;
       g.fillText('СЛОЙ ' + String(Math.round(w.z*ZLAYERS)).padStart(2,'0'), x - 24, y - s*.6);
-      g.globalAlpha = Math.max(a, .2)*.3;               // слабый пульс: тут ещё есть питание
-      g.beginPath(); g.arc(x, y, s*(1 + Math.sin(now*1.2)*.06), 0, 6.29); g.stroke();
+      g.globalAlpha = Math.max(a, .2)*.35; g.strokeStyle = QCOL;   // тут ещё есть питание
+      for(let i = 0; i < 2; i++){
+        const rr = s*2.4 - ((now*90 + i*s) % (s*1.8));
+        g.beginPath(); g.arc(x, y, Math.max(s*.9, rr), 0, 6.29); g.stroke();
+      }
     }
   }
 }
@@ -357,17 +370,19 @@ function drawProps(lightAng, mounted){
           g.moveTo(x + s*.4, yy);  g.lineTo(x + s*.55, yy);
         }
         break;
-      case 'psu': {                                      // энергоузел: дышит, зовёт импульсом
+      case 'psu': {                                      // энергоузел: медленно дышит
         const spent = p.spent;                           // вскрыт светом — пуст до конца цикла
-        const r = s*.3*(1 + Math.sin(now*3 + p.bob)*(spent ? .04 : .18));
+        const sw = spent ? .05 : nodeSwell(p);           // 0..1 — он же множитель отдачи
+        const r = s*.16*(1 + sw*1.4);
         g.arc(x, y, r, 0, 6.29);
         g.moveTo(x - r*1.6, y); g.lineTo(x + r*1.6, y);
         g.moveTo(x, y - r*1.6); g.lineTo(x, y + r*1.6);
         g.stroke();
-        if(!spent){                                      // ореол заряда — как у дрона, читается сразу
-          const pl = .5 + Math.sin(now*3 + p.bob)*.5;
+        // ореол только у набравших вес и только вблизи: градиент на каждый узел в кадре
+        // был вторым по стоимости после теней убежищ
+        if(!spent && sw > .25 && a > .3){
           const gr = g.createRadialGradient(x, y, r*.4, x, y, r*3.4);
-          gr.addColorStop(0, `rgba(255,210,127,${.20 + pl*.16})`);
+          gr.addColorStop(0, `rgba(255,210,127,${.10 + sw*.28})`);
           gr.addColorStop(1, 'rgba(255,210,127,0)');
           g.globalAlpha = a; g.fillStyle = gr;
           g.beginPath(); g.arc(x, y, r*3.4, 0, 6.29); g.fill();
@@ -507,22 +522,27 @@ function drawHavens(){
     g.globalAlpha = 1; g.fillStyle = grd;
     g.beginPath(); g.arc(x, y, R, 0, 6.29); g.fill();
 
-    g.save();
-    g.shadowColor = '#9fe8c4'; g.shadowBlur = 26;   // граница светится, видно издалека
-    g.globalAlpha = inside ? .85 : .55; g.strokeStyle = '#b6f2d6'; g.lineWidth = inside ? 2.6 : 2;
+    // Свечение границы делаем двойной обводкой, а не shadowBlur: размытие тени на
+    // окружности радиусом за тысячу пикселей — самая дорогая операция в кадре,
+    // и именно она роняла fps в убежищах.
     g.beginPath();
-    for(let s = 0; s <= 72; s++){
-      const an = s/72*6.2832, rr = R*(1 + Math.sin(an*5 + now*.8)*.012);
+    for(let s = 0; s <= 48; s++){
+      const an = s/48*6.2832, rr = R*(1 + Math.sin(an*5 + now*.8)*.012);
       s ? g.lineTo(x + Math.cos(an)*rr, y + Math.sin(an)*rr)
         : g.moveTo(x + Math.cos(an)*rr, y + Math.sin(an)*rr);
     }
-    g.closePath(); g.stroke();
-    g.restore();
+    g.closePath();
+    g.globalAlpha = inside ? .28 : .18; g.strokeStyle = '#9fe8c4'; g.lineWidth = 9;
+    g.stroke();
+    g.globalAlpha = inside ? .85 : .55; g.strokeStyle = '#b6f2d6'; g.lineWidth = inside ? 2.6 : 2;
+    g.stroke();
 
-    g.globalAlpha = .22; g.strokeStyle = '#9fe8c4'; g.lineWidth = 1;
-    for(let i = 0; i < 4; i++){                     // круги на воде, сходящиеся к центру
-      const rr = R - ((now*40 + i*R/4) % R);
-      g.beginPath(); g.arc(x, y, Math.max(4, rr), 0, 6.29); g.stroke();
+    if(d < hv.r + 1800){                            // круги на воде — только когда уже подплыл
+      g.globalAlpha = .22; g.strokeStyle = '#9fe8c4'; g.lineWidth = 1;
+      for(let i = 0; i < 3; i++){
+        const rr = R - ((now*40 + i*R/3) % R);
+        g.beginPath(); g.arc(x, y, Math.max(4, rr), 0, 6.29); g.stroke();
+      }
     }
   }
 }
@@ -564,9 +584,9 @@ function drawRecords(){
     if(a <= .02) continue;
     const [x, y, k] = scr(r.x, r.y, r.z);
     if(!vis(x, y, 120)) continue;
-    const pulse = 1 + Math.sin(now*2.4)*.12;
+    const pulse = 1 + Math.sin(now*2.4)*.14;
     g.globalAlpha = a*(got ? .3 : .95);
-    g.strokeStyle = got ? '#3a5c48' : '#cfe8d6'; g.lineWidth = 1.6;
+    g.strokeStyle = got ? '#4a2b42' : QCOL; g.lineWidth = got ? 1.4 : 2;
     g.beginPath();                                   // катушка
     g.arc(x, y, 26*k*pulse, 0, 6.29); g.stroke();
     g.beginPath(); g.arc(x, y, 9*k, 0, 6.29); g.stroke();
@@ -575,7 +595,7 @@ function drawRecords(){
       for(let i = 1; i <= 3; i++){
         g.beginPath(); g.arc(x, y, (26 + i*16)*k*pulse, 0, 6.29); g.stroke();
       }
-      g.globalAlpha = a*.8; g.fillStyle = '#cfe8d6';
+      g.globalAlpha = a*.85; g.fillStyle = QCOL_HOT;
       g.fillText(r.id, x - 26*k, y - 44*k);
     }
   }
@@ -704,24 +724,57 @@ function drawFrags(){
     const [x, y, k] = scr(f.x, f.y, f.z);
     if(!vis(x, y, 140)) continue;
     const armed = !done && fragArmed(f), open = armed && fragOpen(f);
-    g.globalAlpha = a*(done ? .25 : armed ? 1 : .3);
-    g.strokeStyle = done ? '#3a5c48' : open ? '#fff6da' : armed ? '#ffd27f' : '#4e8f6a';
-    g.lineWidth = open ? 2.4 : 1.7;
-    const s = 32*k*(armed ? 1 + Math.sin(now*4)*.14 : 1);
+    g.globalAlpha = a*(done ? .25 : armed ? 1 : .45);
+    g.strokeStyle = done ? '#4a2b42' : open ? QCOL_HOT : armed ? QCOL : QCOL_DIM;
+    g.lineWidth = open ? 2.6 : 1.9;
+    const s = 32*k*(armed ? 1 + Math.sin(now*4)*.14 : 1 + Math.sin(now*1.6)*.05);
     g.beginPath(); g.rect(x-s, y-s, s*2, s*2); g.moveTo(x-s, y+s); g.lineTo(x+s, y-s); g.stroke();
     if(armed){
-      g.globalAlpha = a*.8; g.fillStyle = open ? '#fff6da' : '#ffd27f';
+      g.globalAlpha = a*.8; g.fillStyle = open ? QCOL_HOT : QCOL;
       g.fillText(f.id, x - s, y - s - 8);
       g.globalAlpha = a*.3;
       g.beginPath(); g.arc(x, y, s*(2 + Math.sin(now*3)*.3), 0, 6.29); g.stroke();
     }
     if(open){                                     // окно открыто: сходящееся кольцо, видно издалека
-      g.globalAlpha = a*.55; g.lineWidth = 1.4; g.strokeStyle = '#fff6da';
+      g.globalAlpha = a*.55; g.lineWidth = 1.4; g.strokeStyle = QCOL_HOT;
       for(let i = 0; i < 3; i++){
         const rr = s*4 - ((now*180 + i*s*1.3) % (s*3));
         g.beginPath(); g.arc(x, y, Math.max(s*1.1, rr), 0, 6.29); g.stroke();
       }
     }
+  }
+}
+
+// Засветки от импульса: что именно сонар нащупал вокруг, как оно называется
+// и как далеко. Это и есть ответ на «непонятно, что я должен найти пробелом».
+function drawBlips(){
+  for(const b of blips){
+    const age = (now - b.t)/9, al = 1 - age;
+    if(al <= 0) continue;
+    const [x, y, k] = scr(b.x, b.y, b.z);
+    const off = !vis(x, y, 0);
+    if(off){                                  // цель за кадром — метка ползёт по краю экрана
+      const an = Math.atan2(wrapD(b.y - drone.y, H), wrapD(b.x - drone.x, W));
+      const r = Math.min(VW, VH)*.42;
+      const ex = VW/2 + Math.cos(an)*r, ey = VH/2 + Math.sin(an)*r;
+      g.globalAlpha = al*.5; g.strokeStyle = QCOL; g.lineWidth = 1.4;
+      g.beginPath(); g.arc(ex, ey, 5, 0, 6.29); g.stroke();
+      g.globalAlpha = al*.6; g.fillStyle = QCOL;
+      g.fillText(b.name + '  ' + Math.round(b.d) + 'м', ex + 10, ey + 4);
+      continue;
+    }
+    const pul = 1 + Math.sin(now*4 + b.d)*.18;
+    g.globalAlpha = al*.85; g.strokeStyle = QCOL; g.lineWidth = 1.6;
+    g.beginPath();                            // ромб: ни один объект мира так не рисуется
+    g.moveTo(x, y - 13*pul); g.lineTo(x + 13*pul, y);
+    g.lineTo(x, y + 13*pul); g.lineTo(x - 13*pul, y); g.closePath(); g.stroke();
+    g.globalAlpha = al*.35;
+    const rr = 90 - (age*9 % 1)*70;
+    g.beginPath(); g.arc(x, y, Math.max(16, rr*k), 0, 6.29); g.stroke();
+    g.globalAlpha = al*.9; g.fillStyle = QCOL_HOT;
+    const dz = Math.round(zd(b.z, drone.z)*ZLAYERS);
+    g.fillText(b.name + '  ' + Math.round(b.d) + 'м' +
+               (dz ? '  слой ' + (dz > 0 ? '+' : '') + dz : '  слой ok'), x + 18, y - 16);
   }
 }
 
@@ -734,10 +787,12 @@ function drawPing(){
   g.moveTo(VW/2 + Math.cos(an)*r, VH/2 + Math.sin(an)*r);
   g.lineTo(VW/2 + Math.cos(an)*(r+28), VH/2 + Math.sin(an)*(r+28));
   g.stroke();
-  const dzv = zd(pingArrow.z, drone.z);
+  const dzl = Math.round(zd(pingArrow.z, drone.z)*ZLAYERS);
   g.fillStyle = '#ffd27f';
-  g.fillText(Math.abs(dzv) < .03 ? 'слой ok' : dzv > 0 ? 'глубже ↓' : 'выше ↑',
-    VW/2 + Math.cos(an)*(r+36) - 20, VH/2 + Math.sin(an)*(r+36));
+  g.fillText(dzl ? 'слой ' + (dzl > 0 ? '+' : '') + dzl + '  ' +
+                   Math.round(dist(pingArrow.x, pingArrow.y, drone.x, drone.y)) + 'м'
+                 : 'слой ok  ' + Math.round(dist(pingArrow.x, pingArrow.y, drone.x, drone.y)) + 'м',
+    VW/2 + Math.cos(an)*(r+36) - 26, VH/2 + Math.sin(an)*(r+36));
 }
 
 // объект, который сейчас держим лучом: кольцо заполняется — видно, что процесс идёт
@@ -839,12 +894,16 @@ function drawDrone(lightAng){
         const rr = RE + 14 + i*11 + (1 - age)*8;
         g.beginPath(); g.arc(x, y, rr, echo.ang - .22*near, echo.ang + .22*near); g.stroke();
       }
-      const dzo = echo.dz > .02 ? 1 : echo.dz < -.02 ? -1 : 0;
-      if(dzo){                                             // цель на другом слое: метка внутрь/наружу
-        g.globalAlpha = a2*.6; g.lineWidth = 2;
-        const rr = RE - dzo*12;
-        g.beginPath(); g.arc(x, y, rr, echo.ang - .1, echo.ang + .1); g.stroke();
-      }
+      // подпись у засветки: что нащупали, как далеко и на сколько слоёв мимо.
+      // без неё дуга на кольце читается как «там что-то есть» и ничего не объясняет.
+      const dzl = Math.round(echo.dz*ZLAYERS);
+      const lx = x + ca*(RE + 30), ly = y + sa*(RE + 30);
+      g.globalAlpha = a2*.85; g.fillStyle = `rgba(${col},1)`;
+      g.textAlign = ca < -.3 ? 'right' : 'left';
+      g.fillText((ECHO_NAME[echo.kind] || echo.kind) + '  ' + Math.round(echo.d) + 'м' +
+                 (dzl ? '  слой ' + (dzl > 0 ? '+' : '') + dzl : '  слой ok'),
+                 lx + (ca < -.3 ? -4 : 4), ly + 4);
+      g.textAlign = 'left';
     }
   }
   g.globalAlpha = 1; g.strokeStyle = low ? '#ffb0b0' : '#e8fff2'; g.lineWidth = 1.5;
@@ -942,7 +1001,8 @@ function hud(){
   $h.textContent = thought ? thought.t : '';
   $h.style.opacity = thought ? Math.max(0, Math.min(1, (13 - (now - thought.at))/2.5)) : 0;
   document.getElementById('term').textContent =
-    termOpen ? '> ' + termText + '_\n' + termList()
+    termOpen ? '> ' + termText + '_\n' + termList() +
+               '\n\n  TAB — дописать   ↑↓ — история   ESC — закрыть'
     : (now - termEchoT < 6 ? termEcho : '');
 }
 const mounted = () => now < mountUntil;

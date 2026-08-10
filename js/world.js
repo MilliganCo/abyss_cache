@@ -35,7 +35,7 @@ let nProps = BASE_PROPS, nLife = BASE_LIFE, starPulse = 0, rayGoal = null;
 for(let i = 0; i < MAXP; i++){
   const y = rnd()*H, zi = zoneIdx(y);
   let kind = BY_ZONE[zi][(rnd()*BY_ZONE[zi].length)|0];
-  if(zi > 0 && rnd() < .07) kind = 'psu';             // энергоузлы везде, кроме вступления
+  if(zi > 0 && rnd() < NODE_RATE) kind = 'psu';       // энергоузлы везде, кроме вступления
   const t = TEXTS[(rnd()*TEXTS.length)|0];
   props.push({
     x: rnd()*W, y, z: rnd(), kind, s: 26 + rnd()*140, a: rnd()*6.28,
@@ -82,6 +82,30 @@ function reboot(){
     props[i].dead = false; props[i].wake = 0; props[i].hunt = false; props[i].spent = false;
   }
   grow();
+}
+
+// ---- всё ключевое одним списком: его метит импульс и по нему идёт зов ----
+// Список короткий (около двадцати позиций), поэтому его не жалко пересобирать в кадре.
+function questTargets(){
+  const out = [];
+  for(const f of FRAGS)   if(!fragTaken(f))                out.push({o:f, kind:'frag',   name:f.id});
+  for(const w of WRECKS)  if(!save.wrecks.includes(w.id))  out.push({o:w, kind:'wreck',
+                            name:'ОБЛОМОК · СЛОЙ ' + String(Math.round(w.z*ZLAYERS)).padStart(2,'0')});
+  for(const r of RECORDS) if(!save.records.includes(r.id)) out.push({o:r, kind:'record', name:r.id});
+  for(const t of TEACHERS)if(!save.cmds.includes(t.cmd))   out.push({o:t, kind:'teach',  name:t.label});
+  if(!save.records.includes(STAR_LOG.id))                  out.push({o:STAR_LOG, kind:'core', name:'ЯДРО ЗВЕЗДЫ'});
+  return out;
+}
+
+// Импульс метит всё ключевое вокруг: розовая засветка, имя и дистанция.
+// Раньше он только будил декор — отсюда «непонятно, что я должен им найти».
+function markQuest(){
+  for(const q of questTargets()){
+    const d = dist(q.o.x, q.o.y, drone.x, drone.y);
+    if(d > 3400) continue;
+    blips.push({x:q.o.x, y:q.o.y, z:q.o.z, name:q.name, kind:q.kind, d, t:now});
+  }
+  blips = blips.slice(-12);
 }
 
 // Что сейчас важнее всего — сонар отвечает эхом именно оттуда.
@@ -207,7 +231,7 @@ function step(dt){
   for(const p of pulses) p.r += 780*dt;
   const fresh = pulses.find(p => p.fresh);
   if(fresh){
-    fresh.fresh = false; sonar(); pingEcho();
+    fresh.fresh = false; sonar(); pingEcho(); markQuest();
     const hits = [];
     for(let i = 0; i < nProps; i++){
       const p = props[i];
@@ -262,7 +286,8 @@ function step(dt){
   // подсказки без слов: течение к звезде, скаты-проводники, зов активного кадра
   rayGoal = currentGoal();
   if(carry.length) current(dt);
-  callFragment(dt);
+  senseQuest(dt);
+  blips = blips.filter(b => now - b.t < 9);
 
   stepMind(dt);
   stepCreatures(dt);
@@ -353,9 +378,11 @@ function lightCollect(dt, ang){
     case 'hunter': scareHunter(o); break;
     default:
       o.spent = true;                             // узел пуст до конца цикла, а не 25 секунд
-      drone.pwr = Math.min(PWR_MAX, drone.pwr + (kind === 'node' ? PWR_TAP : PWR_TAP_B));
-      burst(o.x, o.y, o.z, 26, '#ffd27f'); powerHum();
-      toast('УЗЕЛ ВЫКАЧАН', null, '#ffd27f');
+      // отдача по текущему размеру: ждать, пока узел набухнет, выгоднее, чем брать спущенный
+      const got = kind === 'node' ? nodeYield(o) : PWR_TAP_B;
+      drone.pwr = Math.min(PWR_MAX, drone.pwr + got);
+      burst(o.x, o.y, o.z, 12 + Math.round(got/2), '#ffd27f'); powerHum();
+      toast('УЗЕЛ ВЫКАЧАН · +' + Math.round(got), null, '#ffd27f');
   }
   return kind === 'node';
 }
@@ -433,20 +460,27 @@ function current(dt){
   }
 }
 
-// кадр в свой час подтягивает к себе взвесь и тихо звенит.
-// когда условие выполнено прямо сейчас — зов резко громче: это и есть подсказка «бери».
-function callFragment(dt){
-  const f = FRAGS.find(f => fragArmed(f) && !fragTaken(f));
-  if(!f) return;
-  const d = dist(f.x, f.y, drone.x, drone.y);
-  if(d > 3200) return;
-  const open = fragOpen(f);
-  for(let i = 0; i < (open ? 5 : 2); i++){
-    const a2 = Math.random()*6.28, r = 260 + Math.random()*300;
-    spawn(f.x + Math.cos(a2)*r, f.y + Math.sin(a2)*r, f.z,
-          -Math.cos(a2)*2.2, -Math.sin(a2)*2.2, 1.4, open ? '#ffe9b0' : '#ffd27f', 1.4);
+// Зов: чем ближе ключевой объект, тем чаще пульс и тем гуще розовая взвесь вокруг него.
+// Работает на всё сюжетное сразу, а не только на кадры — иначе обломки было не нащупать.
+function senseQuest(dt){
+  questNear = 0; questLead = null;
+  for(const q of questTargets()){
+    const d = dist(q.o.x, q.o.y, drone.x, drone.y);
+    if(d > QUEST_SENSE) continue;
+    const k = (1 - d/QUEST_SENSE) * (Math.abs(zd(q.o.z, drone.z)) < .12 ? 1 : .4);
+    if(k > questNear){ questNear = k; questLead = q; }
   }
-  if(Math.random() < dt*(d < 1200 ? 1.6 : .5)*(open ? 2 : 1)) fragCall((1 - d/3200)*(open ? 1.6 : 1));
+  if(!questLead) return;
+  const o = questLead.o;
+  // кадр в открытом окне зовёт вдвое сильнее: это и есть подсказка «бери сейчас»
+  const open = questLead.kind === 'frag' && fragOpen(o);
+  if(open) questNear = Math.min(1, questNear*1.5);
+  for(let i = 0; i < (questNear > .5 ? 3 : 1) * (open ? 2 : 1); i++){
+    const a = Math.random()*6.28, r = 200 + Math.random()*420;
+    spawn(o.x + Math.cos(a)*r, o.y + Math.sin(a)*r, o.z,
+          -Math.cos(a)*2.4, -Math.sin(a)*2.4, 1.3, open || questNear > .5 ? QCOL_HOT : QCOL, 1.6);
+  }
+  if(open && Math.random() < dt*1.4) fragCall(questNear);
 }
 
 function stepWhales(dt){
