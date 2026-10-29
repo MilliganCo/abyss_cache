@@ -1,5 +1,7 @@
 # ABYSS://CACHE
 
+> Public source preview: see [PUBLICATION.md](PUBLICATION.md) for actual checks, known failures and runtime limits.
+
 Подводная игра-расследование на голом canvas. Ни сборки, ни зависимостей —
 открой `index.html` в браузере.
 
@@ -52,3 +54,8 @@ node test/headless.js
 
 Дизайн-документ слоя расследования — в
 [`docs/superpowers/specs/`](docs/superpowers/specs/).
+
+
+## Public source status — 2026-10-29
+
+See [PUBLICATION.md](PUBLICATION.md) for the current verification scope, prototype limitations and runtime boundaries. Earlier audit checklists describe historical work.
